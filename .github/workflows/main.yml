@@ -1,0 +1,151 @@
+name: Build Flutter Rust App
+
+on:
+  push:
+    tags:
+      - 'v*'           # 推送版本标签时触发，例如 v1.0.0
+  workflow_dispatch:   # 允许手动触发
+
+# 环境变量，用于版本管理和缓存
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  # 你的 Rust crate 名称 (与 Cargo.toml 中一致)
+  CRATE_NAME: frb_template
+
+jobs:
+  # 1. 代码生成 (在所有平台构建前执行)
+  generate-bridge:
+    name: Generate FFI Bridge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 设置 Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0' # 建议指定版本
+          cache: true
+
+      # 设置 Rust
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      # 安装并运行代码生成器
+      - name: Install & Run Flutter Rust Bridge Generator
+        run: |
+          cargo install flutter_rust_bridge_codegen
+          flutter_rust_bridge_codegen create ${{ env.CRATE_NAME }}
+
+      # 上传生成的代码作为 artifact，供后续 jobs 使用
+      - name: Upload generated bridge code
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-bridge
+          path: |
+            **/frb_generated.dart
+            **/frb_generated.rs
+            **/bridge_generated.dart
+          retention-days: 1
+
+  # 2. 构建各平台 (并行执行)
+  build:
+    name: Build for ${{ matrix.target }}
+    needs: generate-bridge
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Android
+          - target: android
+            os: ubuntu-latest
+            flutter-args: build apk --split-per-abi
+            artifact-path: build/app/outputs/flutter-apk/*.apk
+          # iOS (只能在 macOS 上构建)
+          - target: ios
+            os: macos-latest
+            flutter-args: build ios --release --no-codesign
+            artifact-path: build/ios/iphoneos/*.app
+          # Windows
+          - target: windows
+            os: windows-latest
+            flutter-args: build windows --release
+            artifact-path: build/windows/runner/Release/*.exe
+          # Linux
+          - target: linux
+            os: ubuntu-latest
+            flutter-args: build linux --release
+            artifact-path: build/linux/x64/release/bundle/*
+          # macOS
+          - target: macos
+            os: macos-latest
+            flutter-args: build macos --release
+            artifact-path: build/macos/Build/Products/Release/*.app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 下载上一步生成的 bridge 代码
+      - name: Download generated bridge code
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-bridge
+          path: .
+
+      # 设置 Flutter (Android 需要设置 Java)
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          cache: true
+
+      # 设置 Rust (带缓存)
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          profile: minimal
+
+      # Rust 缓存 (加速编译)
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      # 设置 Android NDK (仅 Android)
+      - name: Setup Android NDK
+        if: matrix.target == 'android'
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          add-to-path: false
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      # 安装 iOS 依赖 (仅 iOS/macOS)
+      - name: Install iOS/macOS dependencies
+        if: matrix.target == 'ios' || matrix.target == 'macos'
+        run: |
+          brew install llvm
+          echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
+
+      # 获取依赖
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      # 🔨 编译应用
+      - name: Build Flutter app
+        run: flutter ${{ matrix.flutter-args }}
+
+      # 📦 上传构建产物
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-build
+          path: ${{ matrix.artifact-path }}
