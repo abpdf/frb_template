@@ -30,15 +30,12 @@ jobs:
           - target: windows
             os: windows-latest
             flutter-args: build windows --release
-            artifact-glob: build/windows/runner/Release/*.exe
           - target: linux
             os: ubuntu-latest
             flutter-args: build linux --release
-            artifact-glob: build/linux/x64/release/bundle/*
           - target: macos
             os: macos-latest
             flutter-args: build macos --release
-            artifact-glob: build/macos/Build/Products/Release/*.app
 
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +66,7 @@ jobs:
 
       - name: Setup Android NDK
         if: matrix.target == 'android'
-        id: ndk   # 必须添加 id，以便后续引用输出
+        id: ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
@@ -89,26 +86,28 @@ jobs:
       - name: Build Flutter app
         run: flutter ${{ matrix.flutter-args }}
 
-      # 打包产物（每个平台单独打包）
       - name: Package artifacts
         shell: bash
         run: |
           mkdir -p dist
           case "${{ matrix.target }}" in
             android)
-              zip -j dist/android.zip ${{ matrix.artifact-glob }}
+              zip -j dist/android.zip build/app/outputs/flutter-apk/*.apk
               ;;
             ios)
-              zip -r dist/ios.zip ${{ matrix.artifact-glob }}
+              zip -r dist/ios.zip build/ios/iphoneos/*.app
               ;;
             macos)
-              zip -r dist/macos.zip ${{ matrix.artifact-glob }}
+              zip -r dist/macos.zip build/macos/Build/Products/Release/*.app
               ;;
             linux)
               tar -czf dist/linux.tar.gz -C build/linux/x64/release/bundle .
               ;;
             windows)
-              powershell -Command "Compress-Archive -Path '${{ matrix.artifact-glob }}' -DestinationPath dist/windows.zip"
+              # 列出产物目录（调试）
+              ls -la build/windows/runner/Release/ || true
+              # 切换到目录并打包所有文件
+              powershell -Command "Set-Location build/windows/runner/Release; Compress-Archive -Path * -DestinationPath $env:GITHUB_WORKSPACE/dist/windows.zip"
               ;;
           esac
 
@@ -130,14 +129,14 @@ jobs:
         with:
           path: artifacts
 
-      - name: List downloaded files (for debug)
+      - name: List downloaded files (debug)
         run: ls -R artifacts
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: artifacts/*/dist/*   # 修改为匹配所有文件（包括 .zip 和 .tar.gz）
+          files: artifacts/*/dist/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
