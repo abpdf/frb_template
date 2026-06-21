@@ -22,11 +22,9 @@ jobs:
           - target: android
             os: ubuntu-latest
             flutter-args: build apk --split-per-abi
-            artifact-glob: build/app/outputs/flutter-apk/*.apk
           - target: ios
             os: macos-latest
             flutter-args: build ios --release --no-codesign
-            artifact-glob: build/ios/iphoneos/*.app
           - target: windows
             os: windows-latest
             flutter-args: build windows --release
@@ -104,10 +102,16 @@ jobs:
               tar -czf dist/linux.tar.gz -C build/linux/x64/release/bundle .
               ;;
             windows)
-              # 列出产物目录（调试）
-              ls -la build/windows/runner/Release/ || true
-              # 切换到目录并打包所有文件
-              powershell -Command "Set-Location build/windows/runner/Release; Compress-Archive -Path * -DestinationPath $env:GITHUB_WORKSPACE/dist/windows.zip"
+              # 自动定位 Release 目录（支持多级路径）
+              release_dir=$(find build/windows -type d -name Release | head -n 1)
+              if [ -z "$release_dir" ]; then
+                echo "❌ Release directory not found. Listing build/windows:"
+                ls -R build/windows
+                exit 1
+              fi
+              echo "✅ Found Release directory: $release_dir"
+              # 使用 PowerShell 打包该目录下的所有文件（无顶层文件夹）
+              powershell -Command "\$ws = \$env:GITHUB_WORKSPACE; Set-Location \$ws/$release_dir; Compress-Archive -Path * -DestinationPath \$ws/dist/windows.zip"
               ;;
           esac
 
