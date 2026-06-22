@@ -102,19 +102,13 @@ jobs:
               tar -czf dist/linux.tar.gz -C build/linux/x64/release/bundle .
               ;;
             windows)
-              # 正确的 exe 及依赖所在目录
+              # 确定 Windows 构建产物目录
               release_dir="build/windows/x64/runner/Release"
               echo "=== Checking Windows build output ==="
               ls -R "$release_dir"
-              # 进入该目录打包所有文件（exe + dll + data）
-              cd "$release_dir"
-              zip -r "$GITHUB_WORKSPACE/dist/windows.zip" .
-              cd "$GITHUB_WORKSPACE"
+              # 使用 PowerShell 压缩该目录下的所有文件（不包含外层文件夹）
+              powershell -Command "Set-Location '$release_dir'; Compress-Archive -Path * -DestinationPath '${GITHUB_WORKSPACE}/dist/windows.zip'"
               echo "=== windows.zip created in dist/ ==="
-              ;;
-            *)
-              echo "Unknown target: ${{ matrix.target }}"
-              exit 1
               ;;
           esac
 
