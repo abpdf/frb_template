@@ -102,16 +102,19 @@ jobs:
               tar -czf dist/linux.tar.gz -C build/linux/x64/release/bundle .
               ;;
             windows)
-              # 自动定位 Release 目录（支持多级路径）
-              release_dir=$(find build/windows -type d -name Release | head -n 1)
-              if [ -z "$release_dir" ]; then
-                echo "❌ Release directory not found. Listing build/windows:"
-                ls -R build/windows
-                exit 1
-              fi
-              echo "✅ Found Release directory: $release_dir"
-              # 使用 PowerShell 打包该目录下的所有文件（无顶层文件夹）
-              powershell -Command "\$ws = \$env:GITHUB_WORKSPACE; Set-Location \$ws/$release_dir; Compress-Archive -Path * -DestinationPath \$ws/dist/windows.zip"
+              # 正确的 exe 及依赖所在目录
+              release_dir="build/windows/x64/runner/Release"
+              echo "=== Checking Windows build output ==="
+              ls -R "$release_dir"
+              # 进入该目录打包所有文件（exe + dll + data）
+              cd "$release_dir"
+              zip -r "$GITHUB_WORKSPACE/dist/windows.zip" .
+              cd "$GITHUB_WORKSPACE"
+              echo "=== windows.zip created in dist/ ==="
+              ;;
+            *)
+              echo "Unknown target: ${{ matrix.target }}"
+              exit 1
               ;;
           esac
 
